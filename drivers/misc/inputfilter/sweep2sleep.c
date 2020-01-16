@@ -326,7 +326,9 @@ static int real_x = 0; // reported thru s2s_freeze_cords by touchscreen driver
 static int real_y = 0;
 
 
+#ifdef FILTER_ALL
 static int in_gesture_finger_counter = 0;
+#endif
 static int finger_counter = 0;
 static int frozen_rand = 0;
 static bool freeze_touch_area_detected = false;
@@ -381,9 +383,12 @@ EXPORT_SYMBOL(s2s_freeze_coords);
 
 
 
+
+#ifdef FILTER_ALL
 static bool filtering_on(void) {
 	return get_s2s_switch() && get_s2s_filter_mode() && (((filter_coords_status || freeze_touch_area_detected) && finger_counter<=1) || in_gesture_finger_counter>0);
 }
+#endif
 
 static bool __s2s_input_filter(struct input_handle *handle, unsigned int type,
 				unsigned int code, int value) {
@@ -410,11 +415,12 @@ static bool __s2s_input_filter(struct input_handle *handle, unsigned int type,
 
 
 	if (type == EV_KEY && code == BTN_TOUCH && value == 1) {
+#ifdef FILTER_ALL
 		if (filtering_on()) {
 			in_gesture_finger_counter++;
 		}
+#endif
 		finger_counter++;
-
 		touch_down_called = true;
 		touch_x_called = false;
 		touch_y_called = false;
@@ -423,17 +429,22 @@ static bool __s2s_input_filter(struct input_handle *handle, unsigned int type,
 #ifdef CONFIG_DEBUG_S2S
 		pr_info("%s first touch...\n",__func__);
 #endif
+#ifdef FILTER_ALL
 		return filtering_on();
+#else
+		return false;
+#endif
 	}
 
 	if (type == EV_KEY && code == BTN_TOUCH && value == 0) {
+#ifdef FILTER_ALL
 		bool is_filtering_on = filtering_on();
 		if (filtering_on()) {
 			in_gesture_finger_counter--;
 			if (in_gesture_finger_counter<0) in_gesture_finger_counter = 0;
 		}
+#endif
 		finger_counter--;
-
 		touch_down_called = false;
 		touch_x_called = false;
 		touch_y_called = false;
@@ -460,7 +471,11 @@ static bool __s2s_input_filter(struct input_handle *handle, unsigned int type,
 #ifdef CONFIG_DEBUG_S2S
 		pr_info("%s untouch...\n",__func__);
 #endif
+#ifdef FILTER_ALL
 		return is_filtering_on;
+#else
+		return false;
+#endif
 	}
 
 	if (code == ABS_MT_SLOT) {
@@ -470,7 +485,11 @@ static bool __s2s_input_filter(struct input_handle *handle, unsigned int type,
 		pr_info("%s reset based on slot...\n",__func__);
 #endif
 		sweep2sleep_reset();
+#ifdef FILTER_ALL
 		return filtering_on();
+#else
+		return false;
+#endif
 	}
 
 	if (code == ABS_MT_TRACKING_ID && value == -1) {
@@ -481,7 +500,11 @@ static bool __s2s_input_filter(struct input_handle *handle, unsigned int type,
 #ifdef CONFIG_DEBUG_S2S
 		pr_info("%s untouch based on tracking id...\n",__func__);
 #endif
+#ifdef FILTER_ALL
 		return filtering_on();
+#else
+		return false;
+#endif
 	}
 
 	if (code == ABS_MT_POSITION_X && touch_down_called) {
@@ -553,7 +576,11 @@ static bool __s2s_input_filter(struct input_handle *handle, unsigned int type,
 								write_uci_out("fp_touch");
 							}
 							reset_doubletap_tracking();
+#ifdef FILTER_ALL
 							return filtering_on(); // break out here, don't filter
+#else
+							return false;
+#endif
 						}
 					} else {
 						last_tap_starts_in_dt_area = true;
@@ -574,13 +601,12 @@ static bool __s2s_input_filter(struct input_handle *handle, unsigned int type,
 		}
 	}
 
-#if 1
+#ifdef FILTER_ALL
 	// filter if filter mode active and in sweep touch area, and...
 	// ...this is not right the first touch detection and so the Y coordinate 
 	//    which should NOT be filtered, or it will cause touch positioning issues...
 	return filtering_on();//get_s2s_switch() && get_s2s_filter_mode() && (filter_coords_status || freeze_touch_area_detected);
-#endif
-#if 0
+#else
 	return false; // touch driver should use s2s_freeze_cords, here we let all event through
 #endif
 }
