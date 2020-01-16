@@ -24,7 +24,7 @@ MODULE_VERSION(DRIVER_VERSION);
 MODULE_LICENSE("GPL");
 
 //sweep2sleep
-#define S2S_PWRKEY_DUR         60
+#define S2S_PWRKEY_DUR         20
 #if 1
 // 3040x1440
 static int S2S_Y_MAX = 3040;
@@ -326,21 +326,64 @@ static int real_x = 0; // reported thru s2s_freeze_cords by touchscreen driver
 static int real_y = 0;
 
 
+static int in_gesture_finger_counter = 0;
+static int finger_counter = 0;
 static int frozen_rand = 0;
+static bool freeze_touch_area_detected = false;
+
 bool s2s_freeze_coords(int *x, int *y, int r_x, int r_y) {
 	real_x = r_x;
 	real_y = r_y;
 	if (get_s2s_switch() && get_s2s_filter_mode() && filter_coords_status) {
-		*x = frozen_x + (frozen_rand)%2; // make some random variance so input report will actually get it through
-		*y = frozen_y + (frozen_rand++)%2;
+		*x = S2S_X_MAX/2 + (frozen_rand)%2; // make some random variance so input report will actually get it through
+		*y = S2S_Y_MAX + 100 + (frozen_rand++)%2; // don't let real Y get thru, it crashes the framework occasionally
+
 #ifdef CONFIG_DEBUG_S2S
 		pr_info("%s frozen coords used filtered mode: %d %d\n",__func__,*x,*y);
 #endif
 		return true;
 	}
+	{
+		int s2s_y_limit = get_s2s_y_limit();
+		int s2s_y_above = get_s2s_y_above();
+#ifdef CONFIG_DEBUG_S2S
+		pr_info("%s touch x/y gathered.\n",__func__);
+#endif
+		if (get_s2s_switch() && get_s2s_filter_mode() && !filter_coords_status && !finger_counter) {
+			if (
+			// if ... first touch was not registered (filter_coords_status = false) && register only in corner area, and X is outside cordner area,
+			(!get_s2s_from_corner() || (get_s2s_from_corner() && (r_x > S2S_X_MAX - get_s2s_corner_width() || r_x < get_s2s_corner_width()))) &&
+			// or if... y is not in the touch area or x is not in the whole area,
+			(r_y < s2s_y_above && r_y > s2s_y_limit) &&
+			(r_x > get_s2s_width_cutoff()) && (r_x < S2S_X_MAX - get_s2s_width_cutoff()) &&
+			// or if in filtering mode (left right handed separately checked) and X is not in the 40% of the possible width, and this is still the first touch (!filter_coords_status)...
+			(
+			(get_s2s_filter_mode() == 1 && (r_x > (S2S_X_MAX * 0.60))) || // right handed, on the left side tapped shouldn't filter...
+			(get_s2s_filter_mode() == 2 && (r_x < (S2S_X_MAX * 0.40))) || // left handed, on the right side tapped...
+			(get_s2s_filter_mode() == 3 && (r_x > (S2S_X_MAX * 0.60) || r_x < (S2S_X_MAX * 0.40))) // both handed, in the middle region
+			)
+			)
+			{
+				*x = S2S_X_MAX/2 + (frozen_rand)%2; // make some random variance so input report will actually get it through
+				*y = S2S_Y_MAX + 100 + (frozen_rand++)%2; // don't let real Y get thru, it crashes the framework occasionally
+#ifdef CONFIG_DEBUG_S2S
+				pr_info("%s first touch --- frozen coords used filtered mode: %d %d\n",__func__,*x,*y);
+#endif
+				freeze_touch_area_detected = true;
+				return true;
+			}
+		}
+	}
+
 	return false;
 }
 EXPORT_SYMBOL(s2s_freeze_coords);
+
+
+
+static bool filtering_on(void) {
+	return get_s2s_switch() && get_s2s_filter_mode() && (((filter_coords_status || freeze_touch_area_detected) && finger_counter<=1) || in_gesture_finger_counter>0);
+}
 
 static bool __s2s_input_filter(struct input_handle *handle, unsigned int type,
 				unsigned int code, int value) {
@@ -359,14 +402,19 @@ static bool __s2s_input_filter(struct input_handle *handle, unsigned int type,
 #endif
 
 
-	if (type == EV_SYN) return false;
-	if (type == EV_MSC) return false;
-	if (type == EV_ABS && code == ABS_MT_PRESSURE) return false;
-	if (type == EV_ABS && code == ABS_MT_TOUCH_MAJOR) return false;
-	if (type == EV_ABS && code == ABS_MT_TOUCH_MINOR) return false;
+//	if (type == EV_SYN) return false;
+//	if (type == EV_MSC) return false;
+//	if (type == EV_ABS && code == ABS_MT_PRESSURE) return false;
+//	if (type == EV_ABS && code == ABS_MT_TOUCH_MAJOR) return false;
+//	if (type == EV_ABS && code == ABS_MT_TOUCH_MINOR) return false;
 
 
 	if (type == EV_KEY && code == BTN_TOUCH && value == 1) {
+		if (filtering_on()) {
+			in_gesture_finger_counter++;
+		}
+		finger_counter++;
+
 		touch_down_called = true;
 		touch_x_called = false;
 		touch_y_called = false;
@@ -375,10 +423,17 @@ static bool __s2s_input_filter(struct input_handle *handle, unsigned int type,
 #ifdef CONFIG_DEBUG_S2S
 		pr_info("%s first touch...\n",__func__);
 #endif
-		return false;
+		return filtering_on();
 	}
 
 	if (type == EV_KEY && code == BTN_TOUCH && value == 0) {
+		bool is_filtering_on = filtering_on();
+		if (filtering_on()) {
+			in_gesture_finger_counter--;
+			if (in_gesture_finger_counter<0) in_gesture_finger_counter = 0;
+		}
+		finger_counter--;
+
 		touch_down_called = false;
 		touch_x_called = false;
 		touch_y_called = false;
@@ -405,7 +460,7 @@ static bool __s2s_input_filter(struct input_handle *handle, unsigned int type,
 #ifdef CONFIG_DEBUG_S2S
 		pr_info("%s untouch...\n",__func__);
 #endif
-		return false;
+		return is_filtering_on;
 	}
 
 	if (code == ABS_MT_SLOT) {
@@ -415,7 +470,7 @@ static bool __s2s_input_filter(struct input_handle *handle, unsigned int type,
 		pr_info("%s reset based on slot...\n",__func__);
 #endif
 		sweep2sleep_reset();
-		return false;
+		return filtering_on();
 	}
 
 	if (code == ABS_MT_TRACKING_ID && value == -1) {
@@ -426,11 +481,11 @@ static bool __s2s_input_filter(struct input_handle *handle, unsigned int type,
 #ifdef CONFIG_DEBUG_S2S
 		pr_info("%s untouch based on tracking id...\n",__func__);
 #endif
-		return false;
+		return filtering_on();
 	}
 
 	if (code == ABS_MT_POSITION_X && touch_down_called) {
-		if (get_s2s_switch() && get_s2s_filter_mode() && filter_coords_status) {
+		if (get_s2s_switch() && get_s2s_filter_mode() && (filter_coords_status||freeze_touch_area_detected)) {
 			touch_x = real_x;
 		} else
 		touch_x = value;
@@ -438,7 +493,7 @@ static bool __s2s_input_filter(struct input_handle *handle, unsigned int type,
 	}
 
 	if (code == ABS_MT_POSITION_Y && touch_down_called) {
-		if (get_s2s_switch() && get_s2s_filter_mode() && filter_coords_status) {
+		if (get_s2s_switch() && get_s2s_filter_mode() && (filter_coords_status||freeze_touch_area_detected)) {
 			touch_y = real_y;
 		} else
 		touch_y = value;
@@ -468,6 +523,7 @@ static bool __s2s_input_filter(struct input_handle *handle, unsigned int type,
 			)
 		{	// cancel now...
 			touch_down_called = false;
+			freeze_touch_area_detected = false;
 			sweep2sleep_reset();
 		} else {
 			// in touch area...
@@ -497,7 +553,7 @@ static bool __s2s_input_filter(struct input_handle *handle, unsigned int type,
 								write_uci_out("fp_touch");
 							}
 							reset_doubletap_tracking();
-							return false; // break out here, don't filter
+							return filtering_on(); // break out here, don't filter
 						}
 					} else {
 						last_tap_starts_in_dt_area = true;
@@ -511,19 +567,20 @@ static bool __s2s_input_filter(struct input_handle *handle, unsigned int type,
 				frozen_y = touch_y;
 				frozen_rand = 0;
 			}
+			freeze_touch_area_detected = false;
 			filter_coords_status = true;
 
 			queue_work_on(0, s2s_input_wq, &s2s_input_work);
 		}
 	}
 
-#if 0
+#if 1
 	// filter if filter mode active and in sweep touch area, and...
 	// ...this is not right the first touch detection and so the Y coordinate 
 	//    which should NOT be filtered, or it will cause touch positioning issues...
-	return get_s2s_switch() && get_s2s_filter_mode() && filter_coords_status && !first_touch_detection;
+	return filtering_on();//get_s2s_switch() && get_s2s_filter_mode() && (filter_coords_status || freeze_touch_area_detected);
 #endif
-#if 1
+#if 0
 	return false; // touch driver should use s2s_freeze_cords, here we let all event through
 #endif
 }
@@ -544,6 +601,9 @@ static void s2s_input_event(struct input_handle *handle, unsigned int type,
 
 static int input_dev_filter(struct input_dev *dev) {
 	pr_info("%s sweep2sleep device filter check. Device: %s\n",__func__,dev->name);
+	if (strstr(dev->name, "qpnp_pon")) {
+		sweep2sleep_pwrdev = dev;
+	}
 	if (strstr(dev->name, "synaptics,s3320")) {
 		return 0;
 	} else
@@ -635,7 +695,7 @@ static int __init sweep2sleep_init(void)
 {
 	int rc = 0;
 
-	sweep2sleep_pwrdev = input_allocate_device();
+/*	sweep2sleep_pwrdev = input_allocate_device();
 	if (!sweep2sleep_pwrdev) {
 		pr_err("Failed to allocate sweep2sleep_pwrdev\n");
 		goto err_alloc_dev;
@@ -651,7 +711,7 @@ static int __init sweep2sleep_init(void)
 		pr_err("%s: input_register_device err=%d\n", __func__, rc);
 		goto err_input_dev;
 	}
-
+*/
 	s2s_input_wq = create_workqueue("s2s_iwq");
 	if (!s2s_input_wq) {
 		pr_err("%s: Failed to create workqueue\n", __func__);
@@ -672,10 +732,10 @@ static int __init sweep2sleep_init(void)
 	if (rc)
 		pr_err("%s: sysfs_create_file failed for sweep2sleep\n", __func__);
 
-err_input_dev:
-	input_free_device(sweep2sleep_pwrdev);
+//err_input_dev:
+//	input_free_device(sweep2sleep_pwrdev);
 
-err_alloc_dev:
+//err_alloc_dev:
 	pr_info("%s done\n", __func__);
 	return 0;
 }
@@ -685,8 +745,8 @@ static void __exit sweep2sleep_exit(void)
 	kobject_del(sweep2sleep_kobj);
 	input_unregister_handler(&s2s_input_handler);
 	destroy_workqueue(s2s_input_wq);
-	input_unregister_device(sweep2sleep_pwrdev);
-	input_free_device(sweep2sleep_pwrdev);
+//	input_unregister_device(sweep2sleep_pwrdev);
+//	input_free_device(sweep2sleep_pwrdev);
 
 	return;
 }
