@@ -133,20 +133,55 @@ static void s2s_setup_values() {
 	}
 }
 
+static int finger_counter = 0;
 static bool pause_before_pwr_off = false;
+
+static bool check_no_finger(int timeout) {
+	int timeout_count = 0;
+	while (1) {
+		if (finger_counter==0) break;
+		msleep(2);
+		timeout_count++;
+		if (timeout_count>timeout)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
 /* PowerKey work func */
 static void sweep2sleep_presspwr(struct work_struct * sweep2sleep_presspwr_work) {
-
 	if (!mutex_trylock(&pwrkeyworklock))
                 return;
+
+	if (!check_no_finger(200)) {
+		set_vibrate_2(10,60);
+		goto exit_mutex;
+	}
+
 	if (pause_before_pwr_off) msleep(300);
 	pause_before_pwr_off = false;
+
+	if (!check_no_finger(200)) {
+		set_vibrate_2(10,60);
+		goto exit_mutex;
+	}
+
+	msleep(S2S_PWRKEY_DUR);
+
+	if (!check_no_finger(1)) {
+		set_vibrate_2(10,60);
+		goto exit_mutex;
+	}
+
 	input_event(sweep2sleep_pwrdev, EV_KEY, KEY_POWER, 1);
 	input_event(sweep2sleep_pwrdev, EV_SYN, 0, 0);
 	msleep(S2S_PWRKEY_DUR);
 	input_event(sweep2sleep_pwrdev, EV_KEY, KEY_POWER, 0);
 	input_event(sweep2sleep_pwrdev, EV_SYN, 0, 0);
 	msleep(S2S_PWRKEY_DUR);
+exit_mutex:
         mutex_unlock(&pwrkeyworklock);
 	return;
 }
@@ -329,7 +364,6 @@ static int real_y = 0;
 #ifdef FILTER_ALL
 static int in_gesture_finger_counter = 0;
 #endif
-static int finger_counter = 0;
 static int frozen_rand = 0;
 static bool freeze_touch_area_detected = false;
 
