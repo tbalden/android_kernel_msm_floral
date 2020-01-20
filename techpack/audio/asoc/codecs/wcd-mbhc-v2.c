@@ -659,6 +659,7 @@ void wcd_mbhc_report_plug(struct wcd_mbhc *mbhc, int insertion,
 						SND_JACK_LINEOUT |
 						SND_JACK_ANC_HEADPHONE |
 						SND_JACK_UNSUPPORTED);
+			mbhc->force_linein = false;
 		}
 
 		if (mbhc->current_plug == MBHC_PLUG_TYPE_HEADSET &&
@@ -714,25 +715,6 @@ void wcd_mbhc_report_plug(struct wcd_mbhc *mbhc, int insertion,
 				}
 				pr_debug("%s: Marking jack type as SND_JACK_LINEOUT\n",
 				__func__);
-			}
-		}
-
-		/* Do not calculate impedance again for lineout
-		 * as during playback pa is on and impedance values
-		 * will not be correct resulting in lineout detected
-		 * as headphone.
-		 */
-		if ((is_pa_on) && mbhc->force_linein == true) {
-			jack_type = SND_JACK_LINEOUT;
-			mbhc->current_plug = MBHC_PLUG_TYPE_HIGH_HPH;
-			if (mbhc->hph_status) {
-				mbhc->hph_status &= ~(SND_JACK_HEADSET |
-						SND_JACK_LINEOUT |
-						SND_JACK_UNSUPPORTED);
-				wcd_mbhc_jack_report(mbhc,
-						&mbhc->headset_jack,
-						mbhc->hph_status,
-						WCD_MBHC_JACK_MASK);
 			}
 		}
 
@@ -1059,10 +1041,6 @@ static irqreturn_t wcd_mbhc_mech_plug_detect_irq(int irq, void *data)
 	struct wcd_mbhc *mbhc = data;
 
 	pr_debug("%s: enter\n", __func__);
-	if (mbhc == NULL) {
-		pr_err("%s: NULL irq data\n", __func__);
-		return IRQ_NONE;
-	}
 	if (unlikely((mbhc->mbhc_cb->lock_sleep(mbhc, true)) == false)) {
 		pr_warn("%s: failed to hold suspend\n", __func__);
 		r = IRQ_NONE;
@@ -1195,7 +1173,7 @@ static irqreturn_t wcd_mbhc_btn_press_handler(int irq, void *data)
 	}
 	mbhc->buttons_pressed |= mask;
 	mbhc->mbhc_cb->lock_sleep(mbhc, true);
-	if (queue_delayed_work(system_power_efficient_wq, &mbhc->mbhc_btn_dwork,
+	if (schedule_delayed_work(&mbhc->mbhc_btn_dwork,
 				msecs_to_jiffies(400)) == 0) {
 		WARN(1, "Button pressed twice without release event\n");
 		mbhc->mbhc_cb->lock_sleep(mbhc, false);
@@ -1657,7 +1635,7 @@ int wcd_mbhc_start(struct wcd_mbhc *mbhc, struct wcd_mbhc_config *mbhc_cfg)
 		}
 	} else {
 		if (!mbhc->mbhc_fw || !mbhc->mbhc_cal)
-			queue_delayed_work(system_power_efficient_wq, &mbhc->mbhc_firmware_dwork,
+			schedule_delayed_work(&mbhc->mbhc_firmware_dwork,
 				      usecs_to_jiffies(FW_READ_TIMEOUT));
 		else
 			pr_err("%s: Skipping to read mbhc fw, 0x%pK %pK\n",

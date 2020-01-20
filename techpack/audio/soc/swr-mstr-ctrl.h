@@ -127,7 +127,6 @@ struct swr_mstr_ctrl {
 	struct mutex mlock;
 	struct mutex reslock;
 	struct mutex pm_lock;
-	struct mutex irq_lock;
 	u32 swrm_base_reg;
 	char __iomem *swrm_dig_base;
 	u8 rcmd_id;
@@ -144,7 +143,6 @@ struct swr_mstr_ctrl {
 	int wake_irq;
 	int version;
 	int mclk_freq;
-	int bus_clk;
 	u32 num_dev;
 	int slave_status;
 	struct swrm_mports mport_cfg[SWR_MAX_MSTR_PORT_NUM];

@@ -660,11 +660,6 @@ static ssize_t wcd9xxx_slimslave_reg_show(char __user *ubuf, size_t count,
 		reg_val = wcd9xxx_interface_reg_read(debugCodec, i);
 		len = snprintf(tmp_buf, sizeof(tmp_buf),
 			"0x%.3x: 0x%.2x\n", i, reg_val);
-		if (len < 0) {
-			pr_err("%s: fail to fill the buffer\n", __func__);
-			total = -EFAULT;
-			goto copy_err;
-		}
 
 		if ((total + len) >= count - 1)
 			break;
@@ -859,7 +854,7 @@ static int wcd9xxx_i2c_write_device(struct wcd9xxx *wcd9xxx, u16 reg, u8 *value,
 	struct i2c_msg *msg;
 	int ret = 0;
 	u8 reg_addr = 0;
-	u8 data[64 + 1];
+	u8 data[bytes + 1];
 	struct wcd9xxx_i2c *wcd9xxx_i2c;
 
 	wcd9xxx_i2c = wcd9xxx_i2c_get_device_info(wcd9xxx, reg);
@@ -1232,15 +1227,19 @@ static int wcd9xxx_slim_probe(struct slim_device *slim)
 	int ret = 0;
 	int intf_type;
 
-	if (!slim)
-		return -EINVAL;
-
 	intf_type = wcd9xxx_get_intf_type();
 
 	wcd9xxx = devm_kzalloc(&slim->dev, sizeof(struct wcd9xxx),
 				GFP_KERNEL);
-	if (!wcd9xxx)
-		return -ENOMEM;
+	if (!wcd9xxx) {
+		ret = -ENOMEM;
+		goto err;
+	}
+
+	if (!slim) {
+		ret = -EINVAL;
+		goto err;
+	}
 
 	if (intf_type == WCD9XXX_INTERFACE_TYPE_I2C) {
 		dev_dbg(&slim->dev, "%s:Codec is detected in I2C mode\n",
