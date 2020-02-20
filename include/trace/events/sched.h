@@ -217,9 +217,14 @@ TRACE_EVENT(sched_switch,
 
 		(__entry->prev_state & (TASK_REPORT_MAX - 1)) ?
 		  __print_flags(__entry->prev_state & (TASK_REPORT_MAX - 1), "|",
-				{ 0x01, "S" }, { 0x02, "D" }, { 0x04, "T" },
-				{ 0x08, "t" }, { 0x10, "X" }, { 0x20, "Z" },
-				{ 0x40, "P" }, { 0x80, "I" }) :
+				{ TASK_INTERRUPTIBLE, "S" },
+				{ TASK_UNINTERRUPTIBLE, "D" },
+				{ __TASK_STOPPED, "T" },
+				{ __TASK_TRACED, "t" },
+				{ EXIT_DEAD, "X" },
+				{ EXIT_ZOMBIE, "Z" },
+				{ TASK_PARKED, "P" },
+				{ TASK_DEAD, "I" }) :
 		  "R",
 
 		__entry->prev_state & TASK_REPORT_MAX ? "+" : "",
@@ -1091,17 +1096,20 @@ TRACE_EVENT(core_ctl_set_busy,
 
 TRACE_EVENT(core_ctl_set_boost,
 
-	TP_PROTO(u32 refcount, s32 ret),
-	TP_ARGS(refcount, ret),
+	TP_PROTO(u32 refcount, u32 index, s32 ret),
+	TP_ARGS(refcount, index, ret),
 	TP_STRUCT__entry(
 		__field(u32, refcount)
+		__field(u32, index)
 		__field(s32, ret)
 	),
 	TP_fast_assign(
 		__entry->refcount = refcount;
+		__entry->index = index;
 		__entry->ret = ret;
 	),
-	TP_printk("refcount=%u, ret=%d", __entry->refcount, __entry->ret)
+	TP_printk("refcount=%u, idx=%u, ret=%d", __entry->refcount,
+		  __entry->index, __entry->ret)
 );
 
 TRACE_EVENT(core_ctl_update_nr_need,
@@ -1366,6 +1374,28 @@ TRACE_EVENT(sched_util_est_cpu,
 		  __entry->cpu,
 		  __entry->util_avg,
 		  __entry->util_est_enqueued)
+);
+
+TRACE_EVENT(sched_capacity_update,
+
+	TP_PROTO(int cpu),
+
+	TP_ARGS(cpu),
+
+	TP_STRUCT__entry(
+		__field(unsigned int, cpu			)
+		__field(unsigned int, capacity			)
+		__field(unsigned int, capacity_orig		)
+	),
+
+	TP_fast_assign(
+		__entry->cpu			= cpu;
+		__entry->capacity		= capacity_of(cpu);
+		__entry->capacity_orig		= capacity_orig_of(cpu);
+	),
+
+	TP_printk("cpu=%d capacity=%u capacity_orig=%u",
+		__entry->cpu, __entry->capacity, __entry->capacity_orig)
 );
 
 TRACE_EVENT(sched_cpu_util,

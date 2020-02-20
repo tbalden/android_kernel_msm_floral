@@ -194,7 +194,7 @@ alternative_else_nop_endif
 
 #ifdef CONFIG_SHADOW_CALL_STACK
 	ldr	x18, [tsk, #TSK_TI_SCS]		// Restore shadow call stack
-	str	xzr, [tsk, #TSK_TI_SCS]
+	str	xzr, [tsk, #TSK_TI_SCS]		// Limit visibility of saved SCS
 #endif
 	.else
 	add	x21, sp, #S_FRAME_SIZE
@@ -411,13 +411,12 @@ alternative_insn eret, nop, ARM64_UNMAP_KERNEL_AT_EL0
 	.endm
 
 	/*
-	 * x19 should be preserved between irq_stack_entry and
-	 * irq_stack_exit.
+	 * The callee-saved regs (x19-x29) should be preserved between
+	 * irq_stack_entry and irq_stack_exit.
 	 */
 	.macro	irq_stack_exit
 	mov	sp, x19
 #ifdef CONFIG_SHADOW_CALL_STACK
-	/* x20 is also preserved */
 	mov	x18, x20
 #endif
 	.endm
@@ -603,7 +602,7 @@ el1_da:
 	tbnz	x23, #7, 1f			// PSR_I_BIT
 	enable_irq
 1:
-	clear_address_tag x0, x3
+	untagged_addr x0, x3
 	mov	x2, sp				// struct pt_regs
 	bl	do_mem_abort
 
@@ -789,7 +788,7 @@ el0_da:
 	// enable interrupts before calling the main handler
 	enable_dbg_and_irq
 	ct_user_exit
-	clear_address_tag x0, x26
+	untagged_addr x0, x26
 	mov	x1, x25
 	mov	x2, sp
 	bl	do_mem_abort
@@ -1165,6 +1164,11 @@ ENTRY(cpu_switch_to)
 	ldr	lr, [x8]
 	mov	sp, x9
 	msr	sp_el0, x1
+#ifdef CONFIG_SHADOW_CALL_STACK
+	str	x18, [x0, #TSK_TI_SCS]
+	ldr	x18, [x1, #TSK_TI_SCS]
+	str	xzr, [x1, #TSK_TI_SCS]		// limit visibility of saved SCS
+#endif
 	ret
 ENDPROC(cpu_switch_to)
 NOKPROBE(cpu_switch_to)
