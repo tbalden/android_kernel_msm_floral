@@ -142,19 +142,20 @@ static int __init init_zero_pfn(void)
 core_initcall(init_zero_pfn);
 
 /*
- * This threshold is the boundary in the value space, that the counter has to
- * advance before we trace it. Should be a power of 2. It is to reduce unwanted
- * trace overhead. The counter is number of pages.
+ * Only trace rss_stat when there is a 512kb cross over.
+ * Smaller changes may be lost unless every small change is
+ * crossing into or returning to a 512kb boundary.
  */
 #define TRACE_MM_COUNTER_THRESHOLD 128
 
-void mm_trace_rss_stat(int member, long count, long value)
+void mm_trace_rss_stat(struct mm_struct *mm, int member, long count,
+		       long value)
 {
 	long thresh_mask = ~(TRACE_MM_COUNTER_THRESHOLD - 1);
 
 	/* Threshold roll-over, trace it */
 	if ((count & thresh_mask) != ((count - value) & thresh_mask))
-		trace_rss_stat(member, count);
+		trace_rss_stat(mm, member, count);
 }
 
 #if defined(SPLIT_RSS_COUNTING)
@@ -1821,14 +1822,21 @@ static int insert_pfn(struct vm_area_struct *vma, unsigned long addr,
 			 * in may not match the PFN we have mapped if the
 			 * mapped PFN is a writeable COW page.  In the mkwrite
 			 * case we are creating a writable PTE for a shared
-			 * mapping and we expect the PFNs to match.
+			 * mapping and we expect the PFNs to match. If they
+			 * don't match, we are likely racing with block
+			 * allocation and mapping invalidation so just skip the
+			 * update.
 			 */
-			if (WARN_ON_ONCE(pte_pfn(*pte) != pfn_t_to_pfn(pfn)))
+			if (pte_pfn(*pte) != pfn_t_to_pfn(pfn)) {
+				WARN_ON_ONCE(!is_zero_pfn(pte_pfn(*pte)));
 				goto out_unlock;
-			entry = *pte;
-			goto out_mkwrite;
-		} else
-			goto out_unlock;
+			}
+			entry = pte_mkyoung(*pte);
+			entry = maybe_mkwrite(pte_mkdirty(entry), vma);
+			if (ptep_set_access_flags(vma, addr, pte, entry, 1))
+				update_mmu_cache(vma, addr, pte);
+		}
+		goto out_unlock;
 	}
 
 	/* Ok, finally just insert the thing.. */
@@ -1837,7 +1845,6 @@ static int insert_pfn(struct vm_area_struct *vma, unsigned long addr,
 	else
 		entry = pte_mkspecial(pfn_t_pte(pfn, prot));
 
-out_mkwrite:
 	if (mkwrite) {
 		entry = pte_mkyoung(entry);
 		entry = maybe_mkwrite(pte_mkdirty(entry), vma);
