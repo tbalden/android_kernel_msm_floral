@@ -371,6 +371,12 @@ static int hfi_process_evt_release_buffer_ref(u32 device_id,
 				"hal_process_session_init_done: bad_pkt_size\n");
 		return -E2BIG;
 	}
+	if (pkt->size < sizeof(struct hfi_msg_event_notify_packet) - sizeof(u32)
+		+ sizeof(struct hfi_msg_release_buffer_ref_event_packet)) {
+		dprintk(VIDC_ERR, "%s: bad_pkt_size: %d\n",
+			__func__, pkt->size);
+		return -E2BIG;
+	}
 
 	data = (struct hfi_msg_release_buffer_ref_event_packet *)
 				pkt->rg_ext_event_data;
@@ -629,6 +635,12 @@ enum hal_capability get_hal_cap_type(u32 capability_type)
 	case HFI_CAPABILITY_BLUR_HEIGHT:
 		hal_cap = HAL_CAPABILITY_BLUR_HEIGHT;
 		break;
+	case HFI_CAPABILITY_ROTATION:
+		hal_cap = HAL_CAPABILITY_ROTATION;
+		break;
+	case HFI_CAPABILITY_COLOR_SPACE_CONVERSION:
+		hal_cap = HAL_CAPABILITY_COLOR_SPACE_CONVERSION;
+		break;
 	case HFI_CAPABILITY_SLICE_DELIVERY_MODES:
 		hal_cap = HAL_CAPABILITY_SLICE_DELIVERY_MODES;
 		break;
@@ -752,6 +764,12 @@ static inline void copy_cap_prop(
 		break;
 	case HFI_CAPABILITY_BLUR_HEIGHT:
 		out = &capability->blur_height;
+		break;
+	case HFI_CAPABILITY_ROTATION:
+		out = &capability->rotation;
+		break;
+	case HFI_CAPABILITY_COLOR_SPACE_CONVERSION:
+		out = &capability->color_space_caps;
 		break;
 	case HFI_CAPABILITY_SLICE_DELIVERY_MODES:
 		out = &capability->slice_delivery_mode;
@@ -1555,15 +1573,13 @@ static int hfi_process_session_etb_done(u32 device_id,
 	struct hfi_msg_session_empty_buffer_done_packet *pkt = _pkt;
 	struct msm_vidc_cb_data_done data_done = {0};
 	struct hfi_picture_type *hfi_picture_type = NULL;
+	u32 is_sync_frame;
 
 	dprintk(VIDC_DBG, "RECEIVED: SESSION_ETB_DONE[%#x]\n", pkt->session_id);
 
 	if (!pkt || pkt->size <
-		sizeof(struct hfi_msg_session_empty_buffer_done_packet)) {
-		dprintk(VIDC_ERR,
-				"hal_process_session_etb_done: bad_pkt_size\n");
-		return -E2BIG;
-	}
+		sizeof(struct hfi_msg_session_empty_buffer_done_packet))
+		goto bad_packet_size;
 
 	data_done.device_id = device_id;
 	data_done.session_id = (void *)(uintptr_t)pkt->session_id;
@@ -1583,8 +1599,13 @@ static int hfi_process_session_etb_done(u32 device_id,
 	data_done.input_done.extra_data_buffer = pkt->extra_data_buffer;
 	data_done.input_done.status =
 		hfi_map_err_status(pkt->error_type);
-	hfi_picture_type = (struct hfi_picture_type *)&pkt->rgData[0];
-	if (hfi_picture_type->is_sync_frame) {
+	is_sync_frame = pkt->rgData[0];
+	if (is_sync_frame) {
+		if (pkt->size <
+			sizeof(struct hfi_msg_session_empty_buffer_done_packet)
+			+ sizeof(struct hfi_picture_type))
+			goto bad_packet_size;
+		hfi_picture_type = (struct hfi_picture_type *)&pkt->rgData[1];
 		if (hfi_picture_type->picture_type)
 			data_done.input_done.flags =
 				hfi_picture_type->picture_type;
@@ -1601,6 +1622,10 @@ static int hfi_process_session_etb_done(u32 device_id,
 	info->response.data = data_done;
 
 	return 0;
+bad_packet_size:
+	dprintk(VIDC_ERR, "%s: bad_pkt_size: %d\n",
+		__func__, pkt ? pkt->size : 0);
+	return -E2BIG;
 }
 
 static int hfi_process_session_ftb_done(
@@ -1835,8 +1860,7 @@ static int hfi_process_session_rel_buf_done(u32 device_id,
 	cmd_done.size = sizeof(struct msm_vidc_cb_cmd_done);
 	cmd_done.session_id = (void *)(uintptr_t)pkt->session_id;
 	cmd_done.status = hfi_map_err_status(pkt->error_type);
-	cmd_done.data.buffer_info =
-		*(struct hal_buffer_info *)pkt->rg_buffer_info;
+	cmd_done.data.buffer_info.buffer_addr = *pkt->rg_buffer_info;
 	cmd_done.size = sizeof(struct hal_buffer_info);
 
 	info->response_type = HAL_SESSION_RELEASE_BUFFER_DONE;

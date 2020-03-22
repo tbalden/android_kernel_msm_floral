@@ -3,9 +3,9 @@
  *
  * This code is based on drivers/scsi/ufs/ufshcd.h
  * Copyright (C) 2011-2013 Samsung India Software Operations
- * Copyright (c) 2013-2018, The Linux Foundation. All rights reserved.
  * Copyright (c) 2017-2018 Samsung Electronics Co., Ltd.
  * Copyright (C) 2018, Google, Inc.
+ * Copyright (c) 2013-2019, The Linux Foundation. All rights reserved.
  *
  * Authors:
  *	Santosh Yaraganavi <santosh.sy@samsung.com>
@@ -76,10 +76,6 @@
 
 #include "ufs.h"
 #include "ufshci.h"
-#include "ufshpb.h"
-#ifdef CONFIG_SCSI_UFS_IMPAIRED
-#include "ufs-impaired.h"
-#endif
 
 #define UFSHCD "ufshcd"
 #define UFSHCD_DRIVER_VERSION "0.3"
@@ -88,6 +84,10 @@
 #define UFS_MASK(x, y)	(x << ((y) % BITS_PER_LONG))
 
 struct ufs_hba;
+
+#ifdef CONFIG_SCSI_UFS_IMPAIRED
+#include "ufs-impaired.h"
+#endif
 
 enum dev_cmd_type {
 	DEV_CMD_TYPE_NOP		= 0x0,
@@ -119,11 +119,13 @@ enum ufs_pm_op {
 	UFS_RUNTIME_PM,
 	UFS_SYSTEM_PM,
 	UFS_SHUTDOWN_PM,
+	UFS_SYSTEM_RESTORE,
 };
 
 #define ufshcd_is_runtime_pm(op) ((op) == UFS_RUNTIME_PM)
 #define ufshcd_is_system_pm(op) ((op) == UFS_SYSTEM_PM)
 #define ufshcd_is_shutdown_pm(op) ((op) == UFS_SHUTDOWN_PM)
+#define ufshcd_is_restore(op) ((op) == UFS_SYSTEM_RESTORE)
 
 /* Host <-> Device UniPro Link state */
 enum uic_link_state {
@@ -398,6 +400,7 @@ struct ufs_hba_variant_ops {
  *						   according to tag parameter
  * @crypto_engine_reset: perform reset to the cryptographic engine
  * @crypto_engine_get_status: get errors status of the cryptographic engine
+ * @crypto_get_req_status: Check if crypto driver still holds request or not
  */
 struct ufs_hba_crypto_variant_ops {
 	int	(*crypto_req_setup)(struct ufs_hba *, struct ufshcd_lrb *lrbp,
@@ -407,6 +410,7 @@ struct ufs_hba_crypto_variant_ops {
 			struct request *);
 	int	(*crypto_engine_reset)(struct ufs_hba *);
 	int	(*crypto_engine_get_status)(struct ufs_hba *, u32 *);
+	int     (*crypto_get_req_status)(struct ufs_hba *);
 };
 
 /**
@@ -1160,20 +1164,12 @@ struct ufs_hba {
 	u64 slowio_min_us;
 	u64 slowio[UFSHCD_SLOWIO_OP_MAX][UFSHCD_SLOWIO_SYS_MAX];
 
-	/* HPB support */
-	u32 ufshpb_feat;
-	int ufshpb_state;
-	int ufshpb_max_regions;
-	struct delayed_work ufshpb_init_work;
-	bool issue_ioctl;
-	struct ufshpb_lu *ufshpb_lup[UFS_UPIU_MAX_GENERAL_LUN];
-	struct scsi_device *sdev_ufs_lu[UFS_UPIU_MAX_GENERAL_LUN];
-	struct work_struct ufshpb_eh_work;
-
 	struct ufs_manual_gc manual_gc;
 
 	bool reinit_g4_rate_A;
 	bool force_g4;
+	/* distinguish between resume and restore */
+	bool restore;
 #ifdef CONFIG_SCSI_UFS_IMPAIRED
 	struct kobject *impaired_kobj;
 	struct ufs_impaired_storage impaired;
@@ -1311,6 +1307,9 @@ static inline bool ufshcd_keep_autobkops_enabled_except_suspend(
 	return hba->caps & UFSHCD_CAP_KEEP_AUTO_BKOPS_ENABLED_EXCEPT_SUSPEND;
 }
 
+extern int ufshcd_system_thaw(struct ufs_hba *hba);
+extern int ufshcd_system_restore(struct ufs_hba *hba);
+extern int ufshcd_system_freeze(struct ufs_hba *hba);
 extern int ufshcd_runtime_suspend(struct ufs_hba *hba);
 extern int ufshcd_runtime_resume(struct ufs_hba *hba);
 extern int ufshcd_runtime_idle(struct ufs_hba *hba);
@@ -1668,7 +1667,6 @@ static inline int ufshcd_vops_crypto_engine_reset(struct ufs_hba *hba)
 
 static inline int ufshcd_vops_crypto_engine_get_status(struct ufs_hba *hba,
 		u32 *status)
-
 {
 	if (hba->var && hba->var->crypto_vops &&
 	    hba->var->crypto_vops->crypto_engine_get_status)
@@ -1692,10 +1690,18 @@ static inline void ufshcd_vops_pm_qos_req_end(struct ufs_hba *hba,
 		hba->var->pm_qos_vops->req_end(hba, req, lock);
 }
 
+static inline int ufshcd_vops_crypto_engine_get_req_status(struct ufs_hba *hba)
+
+{
+	if (hba->var && hba->var->crypto_vops &&
+	    hba->var->crypto_vops->crypto_get_req_status)
+		return hba->var->crypto_vops->crypto_get_req_status(hba);
+	return 0;
+}
+
 #define UFSHCD_MIN_SLOWIO_US		(1000)     /*  1 ms      */
 #define UFSHCD_DEFAULT_SLOWIO_READ_US	(5000000)  /*  5 seconds */
 #define UFSHCD_DEFAULT_SLOWIO_WRITE_US	(10000000) /* 10 seconds */
 #define UFSHCD_DEFAULT_SLOWIO_UNMAP_US	(30000000) /* 30 seconds */
 #define UFSHCD_DEFAULT_SLOWIO_SYNC_US	(10000000) /* 10 seconds */
-
 #endif /* End of Header */

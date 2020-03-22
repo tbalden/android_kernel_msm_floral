@@ -120,6 +120,7 @@ enum hal_extradata_id {
 	HAL_EXTRADATA_UBWC_CR_STATS_INFO,
 	HAL_EXTRADATA_HDR10PLUS_METADATA,
 	HAL_EXTRADATA_ENC_DTS_METADATA,
+	HAL_EXTRADATA_INPUT_CROP,
 };
 
 enum hal_property {
@@ -154,6 +155,7 @@ enum hal_property {
 	HAL_CONFIG_VENC_IDR_PERIOD,
 	HAL_PARAM_VENC_ADAPTIVE_B,
 	HAL_PARAM_VPE_ROTATION,
+	HAL_CONFIG_VPE_FLIP,
 	HAL_PARAM_VENC_INTRA_REFRESH,
 	HAL_PARAM_VENC_MULTI_SLICE_CONTROL,
 	HAL_SYS_DEBUG_CONFIG,
@@ -796,6 +798,8 @@ enum hal_capability {
 	HAL_CAPABILITY_MAX_VIDEOCORES,
 	HAL_CAPABILITY_MAX_WORKMODES,
 	HAL_CAPABILITY_UBWC_CR_STATS,
+	HAL_CAPABILITY_ROTATION,
+	HAL_CAPABILITY_COLOR_SPACE_CONVERSION,
 	HAL_UNUSED_CAPABILITY = 0x10000000,
 };
 
@@ -1249,6 +1253,8 @@ struct msm_vidc_capability {
 	struct hal_capability_supported rc_modes;
 	struct hal_capability_supported blur_width;
 	struct hal_capability_supported blur_height;
+	struct hal_capability_supported color_space_caps;
+	struct hal_capability_supported rotation;
 	struct hal_capability_supported slice_delivery_mode;
 	struct hal_capability_supported slice_bytes;
 	struct hal_capability_supported slice_mbs;
