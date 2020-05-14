@@ -14,7 +14,7 @@ echo
 mkdir -p out
 export ARCH=arm64
 export SUBARCH=arm64
-BASE_PATH=/home/android/pixel
+BASE_PATH=/home/user/pixel
 EXT_UTILS=$BASE_PATH/wahoo-kernel-tools/bin
 export CLANG_PATH=$BASE_PATH/clang-10/bin
 export PATH=${CLANG_PATH}:${EXT_UTILS}:${PATH}
@@ -27,10 +27,10 @@ export LD_LIBRARY_PATH=$BASE_PATH/clang-10/lib:$LD_LIBRARY_PATH
 echo
 echo "Set DEFCONFIG"
 echo 
-make CC=clang AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip O=out cleanslate_defconfig
+make CC="ccache clang" AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip O=out cleanslate_defconfig
 
 echo
 echo "Build The Good Stuff"
 echo 
 
-make CC=clang AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip O=out -j4
+make CC="ccache clang" AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip O=out -j4
