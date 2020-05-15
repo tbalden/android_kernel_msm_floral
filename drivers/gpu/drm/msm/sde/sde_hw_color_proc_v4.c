@@ -249,7 +249,7 @@ void sde_setup_dspp_pccv4(struct sde_hw_dspp *ctx, void *cfg)
 	}
 #if 1
 	//pr_info("%s [CLEANSLATE] kcal setup... \n",__func__);
-        enable = uci_get_user_property_int_mm("kcal_enable", enable, 0, 0);
+        enable = uci_get_user_property_int_mm("kcal_enable", enable, 0, 1);
         r = uci_get_user_property_int_mm("kcal_red", r, 0, 256);
         g = uci_get_user_property_int_mm("kcal_green", g, 0, 256);
         b = uci_get_user_property_int_mm("kcal_blue", b, 0, 256);
