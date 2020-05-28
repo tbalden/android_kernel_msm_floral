@@ -34,6 +34,10 @@
 
 #include "drm_crtc_internal.h"
 
+#ifdef CONFIG_UCI
+extern int get_forced_freq(void);
+#endif
+
 void __drm_crtc_commit_free(struct kref *kref)
 {
 	struct drm_crtc_commit *commit =
@@ -299,6 +303,19 @@ drm_atomic_get_crtc_state(struct drm_atomic_state *state,
 
 	state->crtcs[index].state = crtc_state;
 	state->crtcs[index].old_state = crtc->state;
+#if 0
+		{
+	                bool mode_changed = crtc_state->mode_changed;
+    	        	struct drm_display_mode *new_mode = &crtc_state->mode;
+            		int forced_freq = get_forced_freq();
+            		int fps = new_mode->vrefresh;
+            		int old_fps = crtc->state->mode.vrefresh;
+	                //pr_info("%s [cleanslate] atomic crtc state - mode changed: %d vrefresh value: %d old fps %d - forced freq %d\n", __func__, mode_changed, fps, old_fps,forced_freq);
+	                if (fps!=old_fps) {
+				pr_info("%s [cleanslate] atomic crtc state FPS change - mode changed: %d vrefresh value: %d old fps %d - forced freq %d\n", __func__, mode_changed, fps, old_fps,forced_freq);
+			}
+		}
+#endif
 	state->crtcs[index].new_state = crtc_state;
 	state->crtcs[index].ptr = crtc;
 	crtc_state->state = state;
@@ -1929,6 +1946,15 @@ int drm_atomic_set_property(struct drm_atomic_state *state,
 			break;
 		}
 
+#if 0
+		{
+    	        	struct drm_display_mode *new_mode = &crtc_state->mode;
+            		//int forced_freq = get_forced_freq();
+            		int fps = new_mode->vrefresh;
+            		//int fps = new_mode->vrefresh;
+	                pr_info("%s [cleanslate] atomic set proprty - vrefresh value: %d\n", __func__, fps);
+		}
+#endif
 		ret = drm_atomic_crtc_set_property(crtc,
 				crtc_state, prop, prop_value);
 		break;
@@ -2204,6 +2230,7 @@ static void complete_crtc_signaling(struct drm_device *dev,
 	kfree(fence_state);
 }
 
+
 int drm_mode_atomic_ioctl(struct drm_device *dev,
 			  void *data, struct drm_file *file_priv)
 {
@@ -2336,7 +2363,35 @@ retry:
 		}
 		drm_mode_object_put(obj);
 	}
-
+#ifdef CONFIG_UCI
+        {
+                bool mode_changed = false;
+                struct drm_display_mode *old_mode = &state->crtcs->old_state->mode;
+                struct drm_display_mode *new_mode = &state->crtcs->new_state->mode;
+                int forced_freq = get_forced_freq();
+                int fps = new_mode->vrefresh;
+                int old_fps = old_mode->vrefresh;
+                //pr_info("%s [cleanslate] atomic commit data - name: %s mode changed: %d vrefresh value: %d old fps: %d\n", __func__, dev->unique, mode_changed, fps,old_fps);
+		if (fps!=old_fps) {
+            		pr_info("%s [cleanslate] FPS change: atomic commit data - name: %s mode changed: %d vrefresh value: %d old fps: %d\n", __func__, dev->unique, mode_changed, fps,old_fps);
+			if (old_fps == 90 && fps == 60) {
+                                pr_info("%s [cleanslate] FPS change - would be skipping msm atomic commit for mode change to freq not allowed! forced freq: %d\n",__func__,forced_freq);
+				//state->crtcs->new_state->mode = *old_mode;
+				ret = -EFAULT;
+				goto out;
+			}
+		}
+                if (mode_changed) {
+                        pr_info("%s [cleanslate] atomic commit data - name: %s mode changed: %d vrefresh value: %d\n", __func__, dev->unique, mode_changed, fps);
+                        if (forced_freq>0 && fps!=forced_freq) {
+                                pr_info("%s [cleanslate] would be skipping msm atomic commit for mode change to freq not allowed! forced freq: %d\n",__func__,forced_freq);
+                                WARN_ON(true);
+                                //return 0;
+                                return 0;
+                        }
+                }
+        }
+#endif
 	ret = prepare_crtc_signaling(dev, state, arg, file_priv, &fence_state,
 				     &num_fences);
 	if (ret)

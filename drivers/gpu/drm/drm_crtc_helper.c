@@ -279,6 +279,9 @@ bool drm_crtc_helper_set_mode(struct drm_crtc *crtc,
 	bool saved_enabled;
 	struct drm_encoder *encoder;
 	bool ret = true;
+#if 1
+	pr_info("%s [cleanslate] drm set mode... vrefresh %d clock %d \n",__func__, mode->vrefresh, mode->clock);
+#endif
 
 	drm_warn_on_modeset_not_all_locked(dev);
 

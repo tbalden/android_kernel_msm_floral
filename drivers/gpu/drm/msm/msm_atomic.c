@@ -468,6 +468,9 @@ static void msm_atomic_helper_commit_modeset_enables(struct drm_device *dev,
 		DRM_DEBUG_ATOMIC("enabling [ENCODER:%d:%s]\n",
 				 encoder->base.id, encoder->name);
 
+#if 1
+//		pr_info("%s [cleanslate] atomic commit \n",__func__);
+#endif
 		/*
 		 * Each encoder has at most one connector (since we always steal
 		 * it away), so we won't call enable hooks twice.
@@ -535,6 +538,9 @@ static void complete_commit(struct msm_commit *c)
 
 	kms->funcs->prepare_commit(kms, state);
 
+#if 1
+//		pr_info("%s [cleanslate] complete commit \n",__func__);
+#endif
 	msm_atomic_helper_commit_modeset_disables(dev, state);
 
 	drm_atomic_helper_commit_planes(dev, state, 0);
@@ -658,6 +664,10 @@ static void msm_atomic_commit_dispatch(struct drm_device *dev,
 		kfree(commit);
 }
 
+#ifdef CONFIG_UCI
+extern int get_forced_freq(void);
+#endif
+
 /**
  * drm_atomic_helper_commit - commit validated state object
  * @dev: DRM device
@@ -685,6 +695,24 @@ int msm_atomic_commit(struct drm_device *dev,
 		DRM_ERROR("priv is null or shutdwon is in-progress\n");
 		return -EINVAL;
 	}
+
+#if 1
+	{
+		bool mode_changed = state->crtcs->new_state->mode_changed;
+		struct drm_display_mode *new_mode = &state->crtcs->new_state->mode;
+		int forced_freq = get_forced_freq();
+		int fps = new_mode->vrefresh;
+		if (mode_changed) {
+			pr_info("%s [cleanslate] atomic commit data - name: %s mode changed: %d vrefresh value: %d\n", __func__, dev->unique, mode_changed, fps);
+			if (forced_freq>0 && fps!=forced_freq) {
+				pr_info("%s [cleanslate] would be skipping msm atomic commit for mode change to freq not allowed! forced freq: %d\n",__func__,forced_freq);
+				//WARN_ON(true);
+				//return 0;
+				//return -EINVAL;
+			}
+		}
+	}
+#endif
 
 	SDE_ATRACE_BEGIN("atomic_commit");
 	ret = drm_atomic_helper_prepare_planes(dev, state);
