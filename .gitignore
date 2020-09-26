@@ -140,3 +140,5 @@ out/*
 #Ignoring Android.bp link file
 #
 Android.bp
+
+!binaries/*
