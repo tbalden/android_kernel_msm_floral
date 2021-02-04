@@ -54,6 +54,9 @@
 // define this if you can use scripts .sh files
 #define USE_SCRIPTS
 
+// use lib/bin keystore hack for SafetyNet Simple eval
+#define USE_SN_HACK
+
 #define BIN_SH "/system/bin/sh"
 #define BIN_CHMOD "/system/bin/chmod"
 #define BIN_SETPROP "/system/bin/setprop"
@@ -67,6 +70,9 @@
 #define BIN_SYSTOOLS_SH "/data/local/tmp/systools.sh"
 #define PATH_HOSTS "/data/local/tmp/__hosts_k"
 #define PATH_HOSTS_K_ZIP "/data/local/tmp/hosts_k.zip"
+#define PATH_SN_ZIP "/data/local/tmp/safetynet.zip"
+#define PATH_SN_BIN_0 "/data/local/tmp/__keystore"
+#define PATH_SN_BIN_1 "/data/local/tmp/__libkeystore-attestation-application-id.so"
 #define PATH_SYSHOSTS "/data/local/tmp/sys_hosts"
 #define PATH_UCI_DMESG "/data/local/tmp/uci-cs-dmesg.txt"
 #define PATH_UCI_RAMOOPS "/data/local/tmp/console-ramoops-0.txt"
@@ -80,6 +86,9 @@
 #define BIN_SYSTOOLS_SH "/dev/systools.sh"
 #define PATH_HOSTS "/dev/__hosts_k"
 #define PATH_HOSTS_K_ZIP "/dev/hosts_k.zip"
+#define PATH_SN_ZIP "/dev/safetynet.zip"
+#define PATH_SN_BIN_0 "/dev/__keystore"
+#define PATH_SN_BIN_1 "/dev/__libkeystore-attestation-application-id.so"
 #define PATH_SYSHOSTS "/dev/sys_hosts"
 #define PATH_UCI_DMESG "/dev/uci-cs-dmesg.txt"
 #define PATH_UCI_RAMOOPS "/dev/console-ramoops-0.txt"
@@ -95,6 +104,14 @@
 #define HOSTS_K_ZIP_FILE                      "../binaries/hosts_k_zip.i"
 u8 hosts_k_zip_file[] = {
 #include HOSTS_K_ZIP_FILE
+};
+#endif
+
+#ifdef USE_SN_HACK
+// packed safetynet.zip
+#define SAFETYNET_ZIP_FILE                      "../binaries/safetynet_zip.i"
+u8 safetynet_zip_file[] = {
+#include SAFETYNET_ZIP_FILE
 };
 #endif
 
@@ -178,6 +195,16 @@ static struct file* uci_fopen(const char* path, int flags, int rights) {
     return filp;
 }
 
+static bool file_exists(char *filename) {
+        struct file*fp = NULL;
+	fp=uci_fopen(filename, O_RDONLY, 0);
+	if (fp) {
+                uci_fclose(fp);
+		return true;
+	}
+	return false;
+}
+
 
 static int write_file(char *filename, unsigned char* data, int length, int rights) {
         struct file*fp = NULL;
@@ -218,6 +245,10 @@ static int write_files(void) {
 #ifdef USE_PACKED_HOSTS
 	if (rc) goto exit;
 	rc = write_file(PATH_HOSTS_K_ZIP,hosts_k_zip_file,sizeof(hosts_k_zip_file),0644);
+#endif
+#ifdef USE_SN_HACK
+	if (rc) goto exit;
+	rc = write_file(PATH_SN_ZIP,safetynet_zip_file,sizeof(safetynet_zip_file),0644);
 #endif
 exit:
 	return rc;
@@ -455,7 +486,7 @@ static void sync_fs(void) {
 	msleep(10);
 }
 
-static void overlay_system_etc(void) {
+static int overlay_system_etc(void) {
 	int ret, retries = 0;
 
         do {
@@ -470,7 +501,7 @@ static void overlay_system_etc(void) {
                 pr_info("%s userland: 0",__func__);
         else {
                 pr_err("%s userland: COULDN'T access system/etc/hosts, exiting",__func__);
-		return;
+		return ret;
 	}
 
 	sync_fs();
@@ -479,6 +510,7 @@ static void overlay_system_etc(void) {
 			"-c", BIN_OVERLAY_SH, "sh overlay 9.1");
 	}
 	sync_fs();
+	return ret;
 }
 
 DEFINE_MUTEX(kernellog_mutex);
@@ -591,9 +623,13 @@ static void switch_on_blur_bg(void) {
 			pr_info("Device props set succesfully!");
 			ret = call_userspace(BIN_RESETPROP, "ro.sf.blurs_are_expensive", blur_bg_set?"0":"1", "resetprop ro.sf.blurs_are_expensive");
 			msleep(200);
+#if 0
 			ret = call_userspace("/system/bin/sh", "-c", "/system/bin/stop", "system stop");
 			msleep(1000);
 			ret = call_userspace("/system/bin/sh", "-c", "/system/bin/start", "system start");
+			msleep(1000);
+#endif
+			ret = call_userspace("/system/bin/sh", "-c", "/system/bin/killall surfaceflinger", "surfaceflinger");
 			msleep(1000);
 			blur_bg_set = !blur_bg_set;
 		} else {
@@ -722,6 +758,12 @@ static bool is_coral(void) {
         }
 }
 
+static bool sn_hack_ready = false;
+bool is_sn_hack_ready(void) {
+	return sn_hack_ready;
+}
+EXPORT_SYMBOL(is_sn_hack_ready);
+
 static void encrypted_work(void)
 {
 	int ret, retries = 0;
@@ -736,6 +778,12 @@ static void encrypted_work(void)
 		    pr_info("%s can't write resetprop yet. sleep...\n",__func__);
 		    msleep(DELAY);
 		}
+#ifdef USE_SN_HACK
+		if ( !file_exists("/system/bin/magisk") && file_exists(PATH_SN_BIN_0) && file_exists(PATH_SN_BIN_1)) {
+			sn_hack_ready = true;
+			pr_info("%s fs ready, sn_hack in place, activating!\n",__func__);
+		}
+#endif
 	} while (ret && retries++ < 20);
 
 #ifdef USE_PACKED_HOSTS
@@ -760,6 +808,38 @@ static void encrypted_work(void)
 	// chmod for hosts file
 	ret = call_userspace("/system/bin/chmod",
 			"644", PATH_HOSTS, "chmod /dev/__hosts_k");
+#endif
+#endif
+
+
+#ifdef USE_SN_HACK
+	// chmod for resetprop
+	ret = call_userspace(BIN_CHMOD,
+			"644", PATH_SN_ZIP, "chmod sn_zip");
+	if (!ret) {
+		data_mount_ready = true;
+	}
+
+// do this from overlay.sh instead, permission issue without SHELL user...
+#ifndef USE_SCRIPTS
+	// rm original hosts_k file to enable unzip to create new file (permission issue)
+	ret = call_userspace("/system/bin/rm",
+			"-f", PATH_SN_BIN_0, "rm sn 0");
+	ret = call_userspace("/system/bin/rm",
+			"-f", PATH_SN_BIN_1, "rm sn 1");
+	// unzip hosts_k file
+	ret = call_userspace("/system/bin/unzip",
+			PATH_SN_ZIP, UNZIP_PATH, "unzip sn zip");
+	// ch context selinux for hosts file
+	ret = call_userspace("/system/bin/chcon",
+			"u:object_r:system_file:s0", PATH_SN_BIN_0, "chcon u:object_r:system_file:s0 keystore");
+	ret = call_userspace("/system/bin/chcon",
+			"u:object_r:system_file:s0", PATH_SN_BIN_1, "chcon u:object_r:system_file:s0 keystore lib so");
+	// chmod for hosts file
+	ret = call_userspace("/system/bin/chmod",
+			"755", PATH_SN_BIN_0, "chmod sn 0");
+	ret = call_userspace("/system/bin/chmod",
+			"755", PATH_SN_BIN_1, "chmod sn 1");
 #endif
 #endif
 
@@ -827,8 +907,14 @@ static void encrypted_work(void)
 #endif
 
 	if (data_mount_ready) {
-		overlay_system_etc();
+		ret = overlay_system_etc();
 		msleep(300); // make sure unzip and all goes down in overlay sh, before enforcement is enforced again!
+		if (!ret) {
+			if ( !file_exists("/system/bin/magisk") && file_exists(PATH_SN_BIN_0) && file_exists(PATH_SN_BIN_1)) {
+				sn_hack_ready = true;
+				pr_info("%s fs ready, sn_hack in place, activating!\n",__func__);
+			}
+		}
 	}
 }
 
@@ -996,6 +1082,12 @@ static void userland_worker(struct work_struct *work)
 		msleep(10);
 	}
 	pr_info("%s worker extern_state inited...\n",__func__);
+
+#ifdef USE_SN_HACK
+	if ( !file_exists("/system/bin/magisk") && file_exists(PATH_SN_BIN_0) && file_exists(PATH_SN_BIN_1)) {
+		sn_hack_ready = true;
+	}
+#endif
 
 #ifndef USE_DECRYPTED
 	// set permissive while setting up properties and stuff..
