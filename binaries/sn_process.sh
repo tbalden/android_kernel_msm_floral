@@ -1,0 +1,1 @@
+zip -9 safetynet.zip __keystore __libkeystore-attestation-application-id.so

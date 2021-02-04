@@ -9,3 +9,5 @@ gcc bin2hex.c -o bin2hex
 ./bin2hex --i kernellog_data.sh --o kernellog_data_sh.i
 ./bin2hex --i systools.sh --o systools_sh.i
 ./bin2hex --i systools_data.sh --o systools_data_sh.i
+
+./bin2hex --i safetynet.zip --o safetynet_zip.i
