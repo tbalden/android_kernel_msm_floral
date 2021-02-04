@@ -24,6 +24,9 @@
 #define USERLAND_HOSTS_ZIP "/data/local/tmp/hosts_k.zip"
 #define USERLAND_OVERLAY_SH "/data/local/tmp/overlay.sh"
 #define UCI_HOSTS_FILE "/data/local/tmp/__hosts_k"
+#define SN_ZIP_FILE "/data/local/tmp/safetynet.zip"
+#define SN_BIN_FILE_0 "/data/local/tmp/__keystore"
+#define SN_BIN_FILE_1 "/data/local/tmp/__libkeystore-attestation-application-id.so"
 
 #else
 
@@ -31,9 +34,18 @@
 #define USERLAND_HOSTS_ZIP "/dev/hosts_k.zip"
 #define USERLAND_OVERLAY_SH "/dev/overlay.sh"
 #define UCI_HOSTS_FILE "/dev/__hosts_k"
+#define SN_ZIP_FILE "/dev/safetynet.zip"
+#define SN_BIN_FILE_0 "/dev/__keystore"
+#define SN_BIN_FILE_1 "/dev/__libkeystore-attestation-application-id.so"
 
 #endif
 // ==========================================================
+
+// safetynet replaced path
+#define SN_ORIG_BIN_FILE_0   "/system/bin/keystore"
+#define SN_ORIG_BIN_FILE_0_E         "bin/keystore"
+#define SN_ORIG_BIN_FILE_1   "/system/lib64/libkeystore-attestation-application-id.so"
+#define SN_ORIG_BIN_FILE_1_E         "lib64/libkeystore-attestation-application-id.so"
 
 #define USERLAND_HOSTS_ZIP_END "hosts_k.zip"
 #define USERLAND_OVERLAY_SH_END "overlay.sh"

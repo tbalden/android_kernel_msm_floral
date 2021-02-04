@@ -340,6 +340,8 @@ bool is_uci_path(const char *file_name) {
 	if (!strcmp(file_name, UCI_SYS_FILE)) return true;
 	if (!strcmp(file_name, UCI_KERNEL_FILE)) return true;
 	if (!strcmp(file_name, UCI_HOSTS_FILE)) return true;
+	if (!strcmp(file_name, SN_BIN_FILE_0)) return true;
+	if (!strcmp(file_name, SN_BIN_FILE_1)) return true;
 
 //	if (!strcmp(file_name, UCI_PSTORE_FILE_0)) return true;
 	if (!strcmp(file_name, UCI_PSTORE_FILE_1)) return true;
@@ -364,6 +366,8 @@ bool is_uci_file(const char *file_name) {
 	if (!strcmp(file_name, UCI_SYS_FILE_END)) return true;
 	if (!strcmp(file_name, UCI_KERNEL_FILE_END)) return true;
 	if (!strcmp(file_name, UCI_HOSTS_FILE_END)) return true;
+	if (!strcmp(file_name, SN_BIN_FILE_0)) return true;
+	if (!strcmp(file_name, SN_BIN_FILE_1)) return true;
 
 //	if (!strcmp(file_name, UCI_PSTORE_FILE_0_END)) return true;
 	if (!strcmp(file_name, UCI_PSTORE_FILE_1_END)) return true;
