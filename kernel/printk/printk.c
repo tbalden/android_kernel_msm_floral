@@ -1321,16 +1321,20 @@ static size_t msg_print_text(const struct printk_log *msg, bool syslog, char *bu
 	size_t len = 0;
 #if 1
 	if (detect_timeout == 0) {
-		detect_timeout = jiffies + msecs_to_jiffies(3800);
+		detect_timeout = jiffies + msecs_to_jiffies(6800);
 	}
-	if (text!=NULL && text_size>0 && should_detect_magisk && !magisk_detected && strstr(text,"Setup Magisk")) {
+	if (text!=NULL && text_size>0 && should_detect_magisk && !magisk_detected && (strstr(text,"Setup Magisk") || strstr(text,".magisk") || strstr(text,"magiskinit"))) {
 		magisk_detected = true;
 		should_detect_magisk = false;
 		pr_info("[sn_hack] magisk detected");
 	} else if (should_detect_magisk) {
+		if (text!=NULL && text_size>0 && strstr(text,"init second stage")) {
+			pr_info("[sn_hack] magisk detection stopped, second stage init detected\n");
+			should_detect_magisk = false;
+		} else
 		// timeout after enough boot time passed...
 		if (time_after(jiffies, detect_timeout)) { // in 5 sec, magiskinit runs for sure...
-			pr_info("[sn_hack] magisk detection stopped, tiemout");
+			pr_info("[sn_hack] magisk detection stopped, tiemout\n");
 			should_detect_magisk = false;
 		}
 	}
