@@ -18,12 +18,13 @@
 #define __GOOGLE_BMS_H_
 
 #include <linux/types.h>
+#include <linux/power_supply.h>
 #include "qmath.h"
 
 struct device_node;
 
 #define GBMS_CHG_TEMP_NB_LIMITS_MAX 10
-#define GBMS_CHG_VOLT_NB_LIMITS_MAX 5
+#define GBMS_CHG_VOLT_NB_LIMITS_MAX 6
 
 struct gbms_chg_profile {
 	const char *owner_name;
@@ -44,6 +45,9 @@ struct gbms_chg_profile {
 	u32 cv_update_interval;
 	u32 cv_tier_ov_cnt;
 	u32 cv_tier_switch_cnt;
+	u32 chg_last_tier_vpack_tolerance;
+	u32 chg_last_tier_dec_current;
+	u32 chg_last_tier_term_current;
 	/* taper step */
 	u32 fv_uv_resolution;
 	/* experimental */
@@ -351,6 +355,9 @@ int gbms_msc_round_fv_uv(const struct gbms_chg_profile *profile,
 
 /* newgen charging: charger flags  */
 uint8_t gbms_gen_chg_flags(int chg_status, int chg_type);
+/* newgen charging: read/gen charger state  */
+int gbms_read_charger_state(union gbms_charger_state *chg_state,
+			    struct power_supply *chg_psy);
 
 /* debug/print */
 const char *gbms_chg_type_s(int chg_type);
@@ -366,6 +373,12 @@ const char *gbms_chg_ev_adapter_s(int adapter);
 
 /* Binned cycle count */
 #define GBMS_CCBIN_BUCKET_COUNT	10
+
+#ifdef CONFIG_QPNP_QG
+#undef GBMS_CCBIN_BUCKET_COUNT
+#define GBMS_CCBIN_BUCKET_COUNT	8
+#endif
+
 #define GBMS_CCBIN_CSTR_SIZE	(GBMS_CCBIN_BUCKET_COUNT * 6 + 2)
 
 int gbms_cycle_count_sscan_bc(u16 *ccount, int bcnt, const char *buff);
@@ -377,6 +390,7 @@ int gbms_cycle_count_cstr_bc(char *buff, size_t size,
 
 #define gbms_cycle_count_cstr(buff, size, cc)	\
 	gbms_cycle_count_cstr_bc(buff, size, cc, GBMS_CCBIN_BUCKET_COUNT)
+
 
 /* Time to full */
 int ttf_soc_cstr(char *buff, int size, const struct ttf_soc_stats *soc_stats,
@@ -431,6 +445,15 @@ ssize_t ttf_dump_details(char *buf, int max_size,
 #define GBMS_STORAGE_ADDR_INVALID	-1
 #define GBMS_STORAGE_INDEX_INVALID	-1
 
+/* Battery Google Part Number */
+#define GBMS_BGPN_LEN	10
+/* Battery manufacturer info length */
+#define GBMS_MINF_LEN	32
+/* Battery device info length */
+#define GBMS_DINF_LEN	32
+/* Battery cycle count bin length */
+#define GBMS_CNTB_LEN	16
+
 /**
  * Tags are u32 constants: hardcoding as hex since characters constants of more
  * than one byte such as 'BGCE' are frown upon.
@@ -438,13 +461,17 @@ ssize_t ttf_dump_details(char *buf, int max_size,
 typedef uint32_t gbms_tag_t;
 
 enum gbms_tags {
-	GBMS_TAG_BGCE = 0x42434541,
+	GBMS_TAG_BGCE = 0x42474345,
 	GBMS_TAG_BCNT = 0x42434e54,
 	GBMS_TAG_BRES = 0x42524553,
 	GBMS_TAG_SNUM = 0x534e554d,
 	GBMS_TAG_HIST = 0x48495354,
 	GBMS_TAG_BRID = 0x42524944,
 	GBMS_TAG_DSNM = 0x44534e4d,
+	GBMS_TAG_MINF = 0x4d494e46,
+	GBMS_TAG_DINF = 0x44494e46,
+	GBMS_TAG_BGPN = 0x4247504e,
+	GBMS_TAG_CNTB = 0x434e5442,
 };
 
 /**

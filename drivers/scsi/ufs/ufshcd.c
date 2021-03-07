@@ -133,7 +133,7 @@ static void ufshcd_event_record(struct scsi_cmnd *cmd, enum mm_event_type event)
 	bio = cmd->request->bio;
 	while (bio) {
 		if (bio->bi_alloc_ts)
-			mm_event_end(event, bio->bi_alloc_ts);
+			mm_event_record(event, bio->bi_alloc_ts);
 		bio = bio->bi_next;
 		if (bio == cmd->request->bio)
 			break;
@@ -4500,7 +4500,7 @@ int ufshcd_query_flag(struct ufs_hba *hba, enum query_opcode opcode,
 
 	BUG_ON(!hba);
 
-	if (ufshcd_is_shutdown_ongoing(hba))
+	if (ufshcd_is_shutdown_ongoing(hba) && ufshcd_is_ufs_dev_poweroff(hba))
 		return -ENODEV;
 
 	ufshcd_hold_all(hba);
@@ -4571,7 +4571,7 @@ int ufshcd_query_attr(struct ufs_hba *hba, enum query_opcode opcode,
 
 	BUG_ON(!hba);
 
-	if (ufshcd_is_shutdown_ongoing(hba))
+	if (ufshcd_is_shutdown_ongoing(hba) && ufshcd_is_ufs_dev_poweroff(hba))
 		return -ENODEV;
 
 	ufshcd_hold_all(hba);
@@ -4666,7 +4666,7 @@ static int __ufshcd_query_descriptor(struct ufs_hba *hba,
 
 	BUG_ON(!hba);
 
-	if (ufshcd_is_shutdown_ongoing(hba))
+	if (ufshcd_is_shutdown_ongoing(hba) && ufshcd_is_ufs_dev_poweroff(hba))
 		return -ENODEV;
 
 	ufshcd_hold_all(hba);
@@ -8372,7 +8372,7 @@ static int ufshcd_host_reset_and_restore(struct ufs_hba *hba)
 out:
 	if (err)
 		dev_err(hba->dev, "%s: Host init failed %d\n", __func__, err);
-
+	ufshcd_update_error_stats(hba, UFS_ERR_HOST_RESET);
 	return err;
 }
 
@@ -9633,6 +9633,8 @@ static int ufshcd_query_ioctl(struct ufs_hba *hba, u8 lun, void __user *buffer)
 		case QUERY_ATTR_IDN_EE_STATUS:
 		case QUERY_ATTR_IDN_SECONDS_PASSED:
 		case QUERY_ATTR_IDN_MANUAL_GC_STATUS:
+		case QUERY_ATTR_IDN_MANUAL_GC_CONT:
+		case QUERY_ATTR_IDN_MANUAL_GC_STATUS_1:
 			index = 0;
 			break;
 		case QUERY_ATTR_IDN_DYN_CAP_NEEDED:
@@ -10644,7 +10646,10 @@ static int ufshcd_suspend(struct ufs_hba *hba, enum ufs_pm_op pm_op)
 	     ((ufshcd_is_runtime_pm(pm_op) && !hba->auto_bkops_enabled) ||
 	       !ufshcd_is_runtime_pm(pm_op))) {
 		/* ensure that bkops is disabled */
-		ufshcd_disable_auto_bkops(hba);
+		ret = ufshcd_disable_auto_bkops(hba);
+		if (ret)
+			goto enable_gating;
+
 		ret = ufshcd_set_dev_pwr_mode(hba, req_dev_pwr_mode);
 		if (ret)
 			goto enable_gating;
@@ -11340,6 +11345,40 @@ enum {
 	MANUAL_GC_MAX,
 };
 
+static int
+manual_gc_status(struct ufs_hba *hba, u32 *status)
+{
+	if (!hba->sdev_ufs_device || !hba->sdev_ufs_device->model)
+		return 0;
+
+	if (!memcmp(hba->sdev_ufs_device->model, "H9HQ15AECMADAR", 14))
+		return ufshcd_query_attr_retry(hba,
+			UPIU_QUERY_OPCODE_READ_ATTR,
+			QUERY_ATTR_IDN_MANUAL_GC_STATUS_1, 0, 0, status);
+
+	return ufshcd_query_attr_retry(hba,
+		UPIU_QUERY_OPCODE_READ_ATTR,
+		QUERY_ATTR_IDN_MANUAL_GC_STATUS, 0, 0, status);
+}
+
+static int
+manual_gc_enable(struct ufs_hba *hba, u32 *value)
+{
+	if (!hba->sdev_ufs_device || !hba->sdev_ufs_device->model)
+		return 0;
+
+	if (!memcmp(hba->sdev_ufs_device->model, "H9HQ15AECMADAR", 14))
+		return ufshcd_query_attr_retry(hba,
+					UPIU_QUERY_OPCODE_WRITE_ATTR,
+					QUERY_ATTR_IDN_MANUAL_GC_CONT, 0, 0,
+					value);
+
+	return ufshcd_query_flag_retry(hba,
+		(*value == MANUAL_GC_ON) ? UPIU_QUERY_OPCODE_SET_FLAG:
+					UPIU_QUERY_OPCODE_CLEAR_FLAG,
+		QUERY_FLAG_IDN_MANUAL_GC_CONT, NULL);
+}
+
 static ssize_t
 manual_gc_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -11355,13 +11394,9 @@ manual_gc_show(struct device *dev, struct device_attribute *attr, char *buf)
 	pm_runtime_get_sync(hba->dev);
 
 	down_read(&hba->query_lock);
-	if (hba->manual_gc.hagc_support) {
-		int err = ufshcd_query_attr_retry(hba,
-				UPIU_QUERY_OPCODE_READ_ATTR,
-				QUERY_ATTR_IDN_MANUAL_GC_STATUS, 0, 0, &status);
-
-		hba->manual_gc.hagc_support = err ? false: true;
-	}
+	if (hba->manual_gc.hagc_support)
+		hba->manual_gc.hagc_support =
+			manual_gc_status(hba, &status) ? false : true;
 	up_read(&hba->query_lock);
 	pm_runtime_mark_last_busy(hba->dev);
 	pm_runtime_put_noidle(hba->dev);
@@ -11377,7 +11412,6 @@ manual_gc_store(struct device *dev, struct device_attribute *attr,
 			const char *buf, size_t count)
 {
 	struct ufs_hba *hba = dev_get_drvdata(dev);
-	enum query_opcode opcode;
 	u32 value;
 	int err = 0;
 
@@ -11399,13 +11433,9 @@ manual_gc_store(struct device *dev, struct device_attribute *attr,
 
 	pm_runtime_get_sync(hba->dev);
 
-	if (hba->manual_gc.hagc_support) {
-		opcode = (value == MANUAL_GC_ON) ? UPIU_QUERY_OPCODE_SET_FLAG:
-						UPIU_QUERY_OPCODE_CLEAR_FLAG;
-		err = ufshcd_query_flag_retry(hba, opcode,
-					QUERY_FLAG_IDN_MANUAL_GC_CONT, NULL);
-		hba->manual_gc.hagc_support = err ? false: true;
-	}
+	if (hba->manual_gc.hagc_support)
+		hba->manual_gc.hagc_support =
+			manual_gc_enable(hba, &value) ? false : true;
 
 	if (!hba->manual_gc.hagc_support) {
 		err = ufshcd_bkops_ctrl(hba, (value == MANUAL_GC_ON) ?
@@ -11415,7 +11445,8 @@ manual_gc_store(struct device *dev, struct device_attribute *attr,
 			err = -EAGAIN;
 	}
 
-	if (err || hrtimer_active(&hba->manual_gc.hrtimer)) {
+	if (err || !ufshcd_is_auto_hibern8_supported(hba)
+		|| hrtimer_active(&hba->manual_gc.hrtimer)) {
 		pm_runtime_mark_last_busy(hba->dev);
 		pm_runtime_put_noidle(hba->dev);
 		return count;
@@ -12041,6 +12072,7 @@ UFS_ERR_STATS_ATTR(err_power_mode_change, UFS_ERR_POWER_MODE_CHANGE);
 UFS_ERR_STATS_ATTR(err_task_abort, UFS_ERR_TASK_ABORT);
 UFS_ERR_STATS_ATTR(err_autoh8_enter, UFS_ERR_AUTOH8_ENTER);
 UFS_ERR_STATS_ATTR(err_autoh8_exit, UFS_ERR_AUTOH8_EXIT);
+UFS_ERR_STATS_ATTR(err_host_reset, UFS_ERR_HOST_RESET);
 DEVICE_ATTR_RW(reset_err_status);
 
 static struct attribute *ufs_sysfs_err_stats[] = {
@@ -12059,6 +12091,7 @@ static struct attribute *ufs_sysfs_err_stats[] = {
 	&dev_attr_err_task_abort.attr,
 	&dev_attr_err_autoh8_enter.attr,
 	&dev_attr_err_autoh8_exit.attr,
+	&dev_attr_err_host_reset.attr,
 	&dev_attr_reset_err_status.attr,
 	NULL,
 };
