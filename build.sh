@@ -5,13 +5,13 @@ echo "Clean Build Directory"
 echo 
 
 #make clean && make mrproper
-#rm -rf ./out
+#rm -rf ./out_cfi
 
 echo
 echo "Issue Build Commands"
 echo
 
-mkdir -p out
+mkdir -p out_cfi
 export ARCH=arm64
 export SUBARCH=arm64
 BASE_PATH=/home/android/pixel
@@ -32,10 +32,10 @@ cd ..
 echo
 echo "Set DEFCONFIG"
 echo 
-make CC="ccache clang" AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip O=out cleanslate_defconfig
+make CC="ccache clang" AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip O=out_cfi cleanslate_defconfig
 
 echo
 echo "Build The Good Stuff"
 echo 
 
-make CC="ccache clang" AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip O=out -j4
+make CC="ccache clang" AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip O=out_cfi -j8
